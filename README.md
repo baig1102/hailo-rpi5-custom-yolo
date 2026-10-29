@@ -1,12 +1,15 @@
 # hailo-rpi5-custom-yolo
 
+[![CI](https://github.com/baig1102/hailo-rpi5-custom-yolo/actions/workflows/ci.yml/badge.svg)](https://github.com/baig1102/hailo-rpi5-custom-yolo/actions/workflows/ci.yml)
+
 Set up a Hailo-8L on a Raspberry Pi 5 and run **your own** custom-trained YOLO
 model, with small tools that catch the common mistakes before they cost you a day.
 
 Written from my own experience deploying a custom model on a Pi 5 + Hailo-8L.
 Contains no employer code or data.
 
-> **Interim README. Work in progress, no code yet.** The plan is below; the
+> **Interim README. Work in progress.** The project skeleton and CI are in place;
+> the tools themselves are still to come. The plan is below; the
 > final README (quick start, verification status, limitations) comes with v0.1.0.
 > Nothing in this repo has been validated on hardware yet.
 
@@ -65,13 +68,25 @@ official sources.
 
 | # | Milestone | Status |
 |---|---|---|
-| 1 | Project skeleton, CI ([#1](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/1)) | 🚧 in progress |
+| 1 | Project skeleton, CI ([#1](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/1)) | ✅ done |
 | 2 | Letterbox preprocessing, NMS postprocessing ([#2](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/2)) | ⏳ planned |
 | 3 | `hefcheck`: architecture, input vs NMS size ([#3](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/3)) | ⏳ planned |
 | 4 | `doctor`: version, device and import checks ([#4](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/4)) | ⏳ planned |
 | 5 | Inference engine, `InferVStreams` path ([#5](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/5)) | ⏳ planned |
 | 6 | Examples, setup guides, troubleshooting ([#6](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/6)) | ⏳ planned |
 | 7 | Final README, `v0.1.0` ([#7](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/7)) | ⏳ planned |
+
+## Development
+
+Python 3.11 or newer. No Hailo software is needed to run the checks.
+
+```bash
+pip install -e ".[dev]"
+```
+
+```bash
+ruff check . && ruff format --check . && mypy && pytest
+```
 
 ## License
 

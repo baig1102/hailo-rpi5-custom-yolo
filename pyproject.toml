@@ -15,7 +15,7 @@ authors = [{ name = "Mirza Muhted Baig" }]
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["ruff>=0.15", "mypy>=1.11"]
+dev = ["pytest>=8", "ruff>=0.15", "mypy>=1.11"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -37,4 +37,8 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src"]
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"

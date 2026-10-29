@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hailo-yolo"
+# Single source of truth: hailo_yolo.__version__.
+dynamic = ["version"]
+description = "Run your own custom YOLO model on a Raspberry Pi 5 with a Hailo-8L, with checks for the common mistakes."
+readme = "README.md"
+# 3.11 is the system Python on Raspberry Pi OS Bookworm, where hailo_platform is installed via apt.
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Mirza Muhted Baig" }]
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "hailo_yolo.__version__" }
+
+[tool.setuptools.package-data]
+hailo_yolo = ["py.typed"]

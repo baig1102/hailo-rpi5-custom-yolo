@@ -2,7 +2,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from hailo_yolo.preprocess import Letterbox, boxes_to_source, compute_letterbox
+from hailo_yolo.preprocess import Letterbox, boxes_to_source, compute_letterbox, picamera2_to_rgb
 
 
 def to_model_input(boxes: npt.NDArray[np.float64], lb: Letterbox) -> npt.NDArray[np.float64]:
@@ -86,3 +86,29 @@ def test_boxes_with_the_wrong_shape_are_rejected() -> None:
     lb = compute_letterbox(1920, 1080, 640, 640)
     with pytest.raises(ValueError, match=r"shape \(N, 4\)"):
         boxes_to_source([1.0, 2.0, 3.0, 4.0], lb)
+
+
+def pixel(fmt_channels: str) -> npt.NDArray[np.uint8]:
+    """A 1 x 1 frame with R=10, G=20, B=30 (and A=255) in the given channel order."""
+    values = {"R": 10, "G": 20, "B": 30, "A": 255}
+    return np.array([[[values[c] for c in fmt_channels]]], dtype=np.uint8)
+
+
+@pytest.mark.parametrize(
+    ("fmt", "layout"),
+    [("RGB888", "BGR"), ("BGR888", "RGB"), ("XRGB8888", "BGRA"), ("XBGR8888", "RGBA")],
+)
+def test_picamera2_formats_come_out_as_rgb(fmt: str, layout: str) -> None:
+    rgb = picamera2_to_rgb(pixel(layout), fmt)
+    assert rgb.tolist() == [[[10, 20, 30]]]
+    assert rgb.flags.c_contiguous
+
+
+def test_unknown_picamera2_format_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unsupported Picamera2 format 'YUV420'"):
+        picamera2_to_rgb(pixel("RGB"), "YUV420")
+
+
+def test_frame_with_the_wrong_channel_count_is_rejected() -> None:
+    with pytest.raises(ValueError, match=r"XRGB8888 frames have shape \(H, W, 4\)"):
+        picamera2_to_rgb(pixel("RGB"), "XRGB8888")

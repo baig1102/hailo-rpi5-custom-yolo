@@ -1,6 +1,6 @@
-"""Letterbox geometry: fit an image into the model input without distortion, and map back.
+"""Prepare camera frames for the model: colour order and letterbox geometry.
 
-YOLO models are trained on letterboxed images: scaled to fit, aspect ratio kept, the rest
+YOLO models are trained on letterboxed RGB images: scaled to fit, aspect ratio kept, the rest
 padded. Inference has to do the same, and boxes from the model then have to be mapped back
 through the padding and the scale to land on the original image.
 """
@@ -74,3 +74,32 @@ def boxes_to_source(boxes: npt.ArrayLike, lb: Letterbox) -> npt.NDArray[np.float
     out[:, [0, 2]] = np.clip(out[:, [0, 2]], 0, lb.src_width)
     out[:, [1, 3]] = np.clip(out[:, [1, 3]], 0, lb.src_height)
     return out
+
+
+# Channel order of the numpy array Picamera2 returns for each format. It is the reverse of the
+# format name: "BGR888" gives R, G, B. Source: Picamera2 manual, Appendix A "Pixel and image
+# formats", Table 1.
+_PICAMERA2_CHANNELS = {
+    "RGB888": "BGR",
+    "BGR888": "RGB",
+    "XRGB8888": "BGRA",
+    "XBGR8888": "RGBA",
+}
+
+
+def picamera2_to_rgb(frame: npt.NDArray[np.uint8], fmt: str) -> npt.NDArray[np.uint8]:
+    """Return a Picamera2 frame as a contiguous (H, W, 3) RGB array, the order YOLO expects.
+
+    ``fmt`` is the format string the camera was configured with, e.g. ``"BGR888"``. The alpha
+    channel of the 4-channel formats is dropped.
+    """
+    channels = _PICAMERA2_CHANNELS.get(fmt)
+    if channels is None:
+        raise ValueError(
+            f"unsupported Picamera2 format {fmt!r}, use one of {list(_PICAMERA2_CHANNELS)}"
+        )
+    if frame.ndim != 3 or frame.shape[2] != len(channels):
+        raise ValueError(f"{fmt} frames have shape (H, W, {len(channels)}), got {frame.shape}")
+
+    rgb = frame[:, :, :3] if channels.startswith("RGB") else frame[:, :, 2::-1]
+    return np.ascontiguousarray(rgb)

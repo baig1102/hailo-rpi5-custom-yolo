@@ -2,7 +2,13 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from hailo_yolo.preprocess import Letterbox, boxes_to_source, compute_letterbox, picamera2_to_rgb
+from hailo_yolo.preprocess import (
+    Letterbox,
+    boxes_to_source,
+    compute_letterbox,
+    letterbox_image,
+    picamera2_to_rgb,
+)
 
 
 def to_model_input(boxes: npt.NDArray[np.float64], lb: Letterbox) -> npt.NDArray[np.float64]:
@@ -112,3 +118,32 @@ def test_unknown_picamera2_format_is_rejected() -> None:
 def test_frame_with_the_wrong_channel_count_is_rejected() -> None:
     with pytest.raises(ValueError, match=r"XRGB8888 frames have shape \(H, W, 4\)"):
         picamera2_to_rgb(pixel("RGB"), "XRGB8888")
+
+
+def test_letterbox_image_places_the_resized_image_between_grey_bars() -> None:
+    image = np.full((1080, 1920, 3), 200, dtype=np.uint8)
+    out, lb = letterbox_image(image, 640, 640)
+    assert out.shape == (640, 640, 3)
+    assert out.dtype == np.uint8
+    assert (out[:140] == 114).all()
+    assert (out[140:500] == 200).all()
+    assert (out[500:] == 114).all()
+    assert lb == compute_letterbox(1920, 1080, 640, 640)
+
+
+def test_letterbox_image_without_resize_keeps_pixels_exact() -> None:
+    rng = np.random.default_rng(0)
+    image = rng.integers(0, 256, size=(637, 640, 3), dtype=np.uint8)
+    out, lb = letterbox_image(image, 640, 640)
+    assert lb.pad_top == 1
+    np.testing.assert_array_equal(out[1:638], image)
+
+
+def test_letterbox_image_custom_pad_value() -> None:
+    out, _ = letterbox_image(np.zeros((10, 20, 3), dtype=np.uint8), 20, 20, pad_value=0)
+    assert (out == 0).all()
+
+
+def test_letterbox_image_rejects_a_2d_image() -> None:
+    with pytest.raises(ValueError, match=r"shape \(H, W, C\)"):
+        letterbox_image(np.zeros((10, 20), dtype=np.uint8), 20, 20)

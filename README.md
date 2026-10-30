@@ -8,8 +8,8 @@ model, with small tools that catch the common mistakes before they cost you a da
 Written from my own experience deploying a custom model on a Pi 5 + Hailo-8L.
 Contains no employer code or data.
 
-> **Interim README. Work in progress.** The project skeleton and CI are in place;
-> the tools themselves are still to come. The plan is below; the
+> **Interim README. Work in progress.** Pre- and post-processing are in place and
+> unit-tested; the checks and the engine are still to come. The plan is below; the
 > final README (quick start, verification status, limitations) comes with v0.1.0.
 > Nothing in this repo has been validated on hardware yet.
 
@@ -69,7 +69,7 @@ official sources.
 | # | Milestone | Status |
 |---|---|---|
 | 1 | Project skeleton, CI ([#1](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/1)) | ✅ done |
-| 2 | Letterbox preprocessing, NMS postprocessing ([#2](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/2)) | ⏳ planned |
+| 2 | Letterbox preprocessing, NMS postprocessing ([#2](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/2)) | ✅ done |
 | 3 | `hefcheck`: architecture, input vs NMS size ([#3](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/3)) | ⏳ planned |
 | 4 | `doctor`: version, device and import checks ([#4](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/4)) | ⏳ planned |
 | 5 | Inference engine, `InferVStreams` path ([#5](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/5)) | ⏳ planned |
@@ -87,6 +87,10 @@ pip install -e ".[dev]"
 ```bash
 ruff check . && ruff format --check . && mypy && pytest
 ```
+
+The package needs numpy 1.x: the `hailo_platform` that `apt` installs is built
+against it. OpenCV is only needed to letterbox images. On the Pi, use Bookworm's
+`python3-opencv` from `apt`; elsewhere, `pip install -e ".[opencv]"`.
 
 ## License
 

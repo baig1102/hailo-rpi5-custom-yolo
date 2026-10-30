@@ -17,7 +17,10 @@ authors = [{ name = "Mirza Muhted Baig" }]
 dependencies = ["numpy>=1.24,<2"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.15", "mypy>=1.11"]
+# Only letterbox_image() needs OpenCV. On the Pi, use apt's python3-opencv (4.6 in Bookworm)
+# instead of this extra. Wheels from 4.12 on require numpy 2, hence the upper bound.
+opencv = ["opencv-python-headless>=4.8,<4.12"]
+dev = ["pytest>=8", "ruff>=0.15", "mypy>=1.11", "opencv-python-headless>=4.8,<4.12"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

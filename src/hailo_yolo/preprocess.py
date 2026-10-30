@@ -103,3 +103,34 @@ def picamera2_to_rgb(frame: npt.NDArray[np.uint8], fmt: str) -> npt.NDArray[np.u
 
     rgb = frame[:, :, :3] if channels.startswith("RGB") else frame[:, :, 2::-1]
     return np.ascontiguousarray(rgb)
+
+
+def letterbox_image(
+    image: npt.NDArray[np.uint8], dst_width: int, dst_height: int, pad_value: int = 114
+) -> tuple[npt.NDArray[np.uint8], Letterbox]:
+    """Resize and pad an (H, W, C) image into the model input; return it with its geometry.
+
+    Linear interpolation and grey padding (114) are the defaults of Ultralytics' ``LetterBox``,
+    so the input looks like the training images. Keep the returned ``Letterbox`` to map the
+    model's boxes back with ``boxes_to_source``.
+    """
+    # Imported here so the rest of the package works without OpenCV installed.
+    import cv2
+
+    if image.ndim != 3:
+        raise ValueError(f"image must have shape (H, W, C), got {image.shape}")
+    src_height, src_width, channels = image.shape
+    lb = compute_letterbox(src_width, src_height, dst_width, dst_height)
+
+    if (lb.new_width, lb.new_height) == (src_width, src_height):
+        resized = image
+    else:
+        # cv2's stubs type the result loosely; it is uint8 like the input, so this doesn't copy.
+        resized = np.asarray(
+            cv2.resize(image, (lb.new_width, lb.new_height), interpolation=cv2.INTER_LINEAR),
+            dtype=np.uint8,
+        )
+
+    out = np.full((dst_height, dst_width, channels), pad_value, dtype=np.uint8)
+    out[lb.pad_top : lb.pad_top + lb.new_height, lb.pad_left : lb.pad_left + lb.new_width] = resized
+    return out, lb

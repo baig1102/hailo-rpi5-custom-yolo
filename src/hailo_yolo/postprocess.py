@@ -2,12 +2,16 @@
 
 HailoRT returns NMS results in one of two layouts, picked by ``tf_nms_format`` when the
 ``InferVStreams`` pipeline is created. Both describe one box as five values in the order
-``y_min, x_min, y_max, x_max, score``: y comes first. Coordinates are normalised to 0-1.
+``y_min, x_min, y_max, x_max, score``: y comes first. Coordinates are normalised to 0-1,
+relative to the model input.
 
-Sources, all in hailo-ai/hailort at tag v4.20.0:
+Sources, in hailo-ai/hailort at tag v4.20.0 unless noted:
 
 - Box field order: ``hailo_bbox_float32_t``,
-  hailort/libhailort/include/hailo/hailort.h lines 1379-1385.
+  hailort/libhailort/include/hailo/hailort.h lines 1379-1385; the per-class layout (count, then
+  boxes) in the docs of ``HAILO_FORMAT_ORDER_HAILO_NMS_BY_CLASS``, same file, lines 745-761.
+- Normalised coordinates: not stated in that header. This comes from my own setup
+  (HailoRT 4.20 on a Pi 5 with Hailo-8L), not from the HailoRT source.
 - Both layouts: ``InferVStreams`` docstring,
   hailort/libhailort/bindings/python/platform/hailo_platform/pyhailort/pyhailort.py
   lines 868-875, and the converters in the same file (``output_raw_buffer_to_nms_tf_format``

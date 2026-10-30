@@ -12,7 +12,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Mirza Muhted Baig" }]
-dependencies = []
+# hailo_platform 4.20 from apt is built against numpy 1.x; numpy 2 in the same environment breaks it.
+# 1.24 is the python3-numpy version in Bookworm.
+dependencies = ["numpy>=1.24,<2"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.15", "mypy>=1.11"]

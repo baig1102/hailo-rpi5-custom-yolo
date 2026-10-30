@@ -17,6 +17,8 @@ class Letterbox:
 
     src_width: int
     src_height: int
+    dst_width: int
+    dst_height: int
     scale: float
     new_width: int
     new_height: int
@@ -50,6 +52,8 @@ def compute_letterbox(
     return Letterbox(
         src_width=src_width,
         src_height=src_height,
+        dst_width=dst_width,
+        dst_height=dst_height,
         scale=scale,
         new_width=new_width,
         new_height=new_height,

@@ -2,7 +2,8 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from hailo_yolo.postprocess import from_hailo_format, from_tf_format
+from hailo_yolo.postprocess import from_hailo_format, from_tf_format, to_detections
+from hailo_yolo.preprocess import compute_letterbox
 
 # Two classes. Class 0 has two boxes, class 1 has one. Rows: y_min, x_min, y_max, x_max, score.
 CLASS0 = [[0.10, 0.20, 0.30, 0.40, 0.90], [0.50, 0.55, 0.60, 0.65, 0.40]]
@@ -73,3 +74,47 @@ def test_both_layouts_agree_on_the_real_detections() -> None:
 def test_tf_format_rejects_other_shapes(shape: tuple[int, ...]) -> None:
     with pytest.raises(ValueError, match=r"shape \(classes, 5, max_boxes\)"):
         from_tf_format(np.zeros(shape))
+
+
+def test_detections_are_mapped_onto_the_source_image() -> None:
+    # 1920 x 1080 into 640 x 640: scale 1/3, 140 rows of padding on top.
+    lb = compute_letterbox(1920, 1080, 640, 640)
+    # A box covering x 64..320 and y 204..300 in model-input pixels, written as HailoRT does:
+    # y first, normalised by the input size.
+    nms = from_hailo_format([np.array([[204 / 640, 64 / 640, 300 / 640, 320 / 640, 0.8]])])
+    (det,) = to_detections(nms, lb, score_threshold=0.5)
+    assert det.class_id == 0
+    assert det.score == pytest.approx(0.8)
+    assert (det.x1, det.y1, det.x2, det.y2) == pytest.approx((192, 192, 960, 480))
+
+
+def test_threshold_drops_low_scores_and_sorts_by_score() -> None:
+    lb = compute_letterbox(640, 640, 640, 640)
+    nms = from_hailo_format([np.array(CLASS0), np.array(CLASS1)])
+    dets = to_detections(nms, lb, score_threshold=0.5)
+    assert [(d.class_id, d.score) for d in dets] == [(0, 0.90), (1, 0.70)]
+
+
+def test_threshold_is_inclusive() -> None:
+    lb = compute_letterbox(640, 640, 640, 640)
+    nms = from_hailo_format([np.array(CLASS0)])
+    assert len(to_detections(nms, lb, score_threshold=0.40)) == 2
+
+
+def test_tf_padding_slots_are_dropped_by_the_threshold() -> None:
+    lb = compute_letterbox(640, 640, 640, 640)
+    nms = from_tf_format(build_tf_frame(max_boxes=10, empty_value=0.003))
+    dets = to_detections(nms, lb, score_threshold=0.25)
+    assert [d.score for d in dets] == pytest.approx([0.90, 0.70, 0.40])
+
+
+def test_no_detections_gives_an_empty_list() -> None:
+    lb = compute_letterbox(640, 640, 640, 640)
+    assert to_detections(from_hailo_format([np.empty((0, 5))]), lb, score_threshold=0.5) == []
+
+
+@pytest.mark.parametrize("threshold", [0.0, -0.1, 1.5])
+def test_threshold_outside_0_to_1_is_rejected(threshold: float) -> None:
+    lb = compute_letterbox(640, 640, 640, 640)
+    with pytest.raises(ValueError, match="score_threshold"):
+        to_detections(from_hailo_format([]), lb, score_threshold=threshold)

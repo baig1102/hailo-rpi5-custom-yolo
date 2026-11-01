@@ -127,3 +127,100 @@ def _parse_nms_op(text: str) -> NmsOp | None:
         image_height=int(height) if height is not None else None,
         image_width=int(width) if width is not None else None,
     )
+
+
+@dataclass(frozen=True)
+class Finding:
+    level: str  # "error": won't load, "warning": loads but results are wrong or slow, "info"
+    message: str
+
+
+# HEF architectures each device accepts: DeviceBase::is_hef_compatible,
+# hailort/libhailort/src/device_common/device_internal.cpp line 716 (v4.20.0). A Hailo-8 also
+# runs Hailo-8L HEFs, with a "lower performance" warning (same file, line 616).
+_DEVICE_ACCEPTS = {"HAILO8": {"HAILO8", "HAILO8L"}, "HAILO8L": {"HAILO8L"}}
+
+
+def check_hef(info: HefInfo, device_arch: str | None = None) -> list[Finding]:
+    """Check a parsed HEF, optionally against the device's architecture (e.g. ``HAILO8L``).
+
+    ``device_arch`` is the ``Device Architecture`` line of ``hailortcli fw-control identify``,
+    not ``Board Name``: a Hailo-8L reports ``Board Name: Hailo-8``.
+    """
+    return [*_check_architecture(info, device_arch), *_check_nms(info)]
+
+
+def _check_architecture(info: HefInfo, device_arch: str | None) -> list[Finding]:
+    hef = info.architecture
+    if device_arch is None:
+        return [
+            Finding(
+                "info",
+                f"HEF compiled for {hef}. Compare it with 'Device Architecture' from "
+                "'hailortcli fw-control identify', not with 'Board Name'.",
+            )
+        ]
+    device = device_arch.upper()
+    accepts = _DEVICE_ACCEPTS.get(device)
+    if accepts is None:
+        return [Finding("info", f"HEF compiled for {hef}; device {device} is not checked here.")]
+    if hef not in accepts:
+        return [
+            Finding(
+                "error",
+                f"HEF compiled for {hef} won't load on a {device} device. "
+                f"Compile it for {device.lower()}.",
+            )
+        ]
+    if hef != device:
+        return [
+            Finding(
+                "warning",
+                f"HEF compiled for {hef} runs on a {device} device, but with lower performance. "
+                f"Compile it for {device.lower()} to use the whole chip.",
+            )
+        ]
+    return [Finding("info", f"HEF compiled for {hef} matches the device.")]
+
+
+def _check_nms(info: HefInfo) -> list[Finding]:
+    nms = info.nms
+    if nms is None:
+        return [
+            Finding(
+                "warning",
+                "No built-in NMS op: the outputs are raw layers. hailo_yolo.postprocess expects "
+                "a HEF compiled with NMS.",
+            )
+        ]
+
+    findings = [
+        Finding(
+            "info",
+            f"NMS op {nms.op_type}: {nms.classes} classes, score threshold "
+            f"{nms.score_threshold:g}, IoU threshold {nms.iou_threshold:g}.",
+        )
+    ]
+    if nms.image_height is None or nms.image_width is None:
+        findings.append(Finding("info", "The NMS op reports no image size; not checked."))
+        return findings
+
+    nms_hw = f"{nms.image_height}x{nms.image_width}"
+    for inp in info.inputs:
+        if inp.shape is None or len(inp.shape) != 3:
+            continue
+        input_hw = f"{inp.shape[0]}x{inp.shape[1]}"
+        if input_hw != nms_hw:
+            findings.append(
+                Finding(
+                    "warning",
+                    f"Input {inp.name} is {input_hw} (HxW) but the NMS is configured for "
+                    f"{nms_hw}: boxes will come out scaled wrong. Set the NMS image size to the "
+                    "input size when compiling.",
+                )
+            )
+        else:
+            findings.append(
+                Finding("info", f"Input {inp.name} and the NMS image size are both {input_hw}.")
+            )
+    return findings

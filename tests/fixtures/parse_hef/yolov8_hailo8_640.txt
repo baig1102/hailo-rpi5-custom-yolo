@@ -1,0 +1,17 @@
+Architecture HEF was compiled for: HAILO8
+Network group name: custom_yolov8s, Single Context
+    Network name: custom_yolov8s/custom_yolov8s
+        VStream infos:
+            Input  custom_yolov8s/input_layer1 UINT8, NHWC(640x640x3)
+            Output custom_yolov8s/yolov8_nms_postprocess FLOAT32, HAILO NMS BY CLASS(number of classes: 3, maximum bounding boxes per class: 100, maximum frame size: 6012)
+            Operation:
+                Op YOLOV8
+                Name: YOLOV8-Post-Process
+                Score threshold: 0.250
+                IoU threshold: 0.45
+                Classes: 3
+                Cross classes: false
+                NMS results order: BY_CLASS
+                Max bboxes per class: 100
+                Image height: 640
+                Image width: 640

@@ -10,8 +10,13 @@ The text format comes from HailoRT v4.20.0 (hailo-ai/hailort):
   ``yolov8_post_process.cpp`` (line 34) adds ``Image height`` and ``Image width``.
 """
 
+import argparse
 import re
+import subprocess
+import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -224,3 +229,56 @@ def _check_nms(info: HefInfo) -> list[Finding]:
                 Finding("info", f"Input {inp.name} and the NMS image size are both {input_hw}.")
             )
     return findings
+
+
+def run_parse_hef(hef_path: Path) -> str:
+    """Run ``hailortcli parse-hef`` on the Pi and return its output."""
+    result = subprocess.run(
+        ["hailortcli", "parse-hef", str(hef_path)], capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"hailortcli parse-hef failed:\n{result.stdout}{result.stderr}".rstrip())
+    return result.stdout
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Exit code 0: no problems, 1: warnings or errors found, 2: the check couldn't run."""
+    parser = argparse.ArgumentParser(
+        prog="hailo-yolo-hefcheck", description="Check a HEF before running it."
+    )
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("hef", nargs="?", type=Path, help="HEF file; runs hailortcli parse-hef")
+    source.add_argument(
+        "--from-file", type=Path, help="saved parse-hef output, e.g. to check a HEF off the Pi"
+    )
+    parser.add_argument(
+        "--device-arch",
+        help="'Device Architecture' from 'hailortcli fw-control identify', e.g. HAILO8L",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        if args.from_file is not None:
+            text = args.from_file.read_text()
+        else:
+            hef = args.hef.resolve()
+            if not hef.is_file():
+                raise FileNotFoundError(f"HEF not found: {hef}")
+            text = run_parse_hef(hef)
+        findings = check_hef(parse_hef_output(text), args.device_arch)
+    except FileNotFoundError as e:
+        # Also raised by subprocess when hailortcli isn't installed.
+        hint = " (is hailo-all installed?)" if e.filename == "hailortcli" else ""
+        print(f"hefcheck: {e}{hint}", file=sys.stderr)
+        return 2
+    except (OSError, RuntimeError, ValueError) as e:
+        print(f"hefcheck: {e}", file=sys.stderr)
+        return 2
+
+    for finding in findings:
+        print(f"{finding.level.upper():8} {finding.message}")
+    return 1 if any(f.level != "info" for f in findings) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

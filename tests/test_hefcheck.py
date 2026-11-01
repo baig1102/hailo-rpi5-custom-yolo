@@ -1,8 +1,9 @@
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from hailo_yolo.hefcheck import Finding, HefInfo, check_hef, parse_hef_output
+from hailo_yolo.hefcheck import Finding, HefInfo, check_hef, main, parse_hef_output
 
 FIXTURES = Path(__file__).parent / "fixtures" / "parse_hef"
 
@@ -127,3 +128,76 @@ def test_hef_without_nms_is_a_warning() -> None:
 def test_nms_thresholds_are_reported() -> None:
     findings = check_hef(load("yolov8_hailo8l_640.txt"))
     assert any("score threshold 0.25, IoU threshold 0.45" in f.message for f in findings)
+
+
+def test_cli_from_file_reports_and_exits_0_without_problems(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = main(
+        ["--from-file", str(FIXTURES / "yolov8_hailo8l_640.txt"), "--device-arch", "HAILO8L"]
+    )
+    assert code == 0
+    assert "INFO     HEF compiled for HAILO8L matches the device." in capsys.readouterr().out
+
+
+def test_cli_exits_1_on_an_error(capsys: pytest.CaptureFixture[str]) -> None:
+    code = main(
+        ["--from-file", str(FIXTURES / "yolov8_hailo8_640.txt"), "--device-arch", "HAILO8L"]
+    )
+    assert code == 1
+    assert "ERROR    HEF compiled for HAILO8" in capsys.readouterr().out
+
+
+def test_cli_exits_1_on_a_warning() -> None:
+    assert main(["--from-file", str(FIXTURES / "yolov8_input1280_nms640.txt")]) == 1
+
+
+def test_cli_missing_hef_exits_2(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main([str(tmp_path / "missing.hef")]) == 2
+    assert "HEF not found" in capsys.readouterr().err
+
+
+def test_cli_runs_hailortcli_with_the_absolute_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hef = tmp_path / "model.hef"
+    hef.write_bytes(b"")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        text = (FIXTURES / "yolov8_hailo8l_640.txt").read_text()
+        return subprocess.CompletedProcess(cmd, 0, stdout=text, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.chdir(tmp_path)
+    assert main(["model.hef", "--device-arch", "HAILO8L"]) == 0
+    assert calls == [["hailortcli", "parse-hef", str(hef.resolve())]]
+
+
+def test_cli_without_hailortcli_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hef = tmp_path / "model.hef"
+    hef.write_bytes(b"")
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError(2, "No such file or directory", "hailortcli")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert main([str(hef)]) == 2
+    assert "is hailo-all installed?" in capsys.readouterr().err
+
+
+def test_cli_reports_a_failing_hailortcli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    hef = tmp_path / "model.hef"
+    hef.write_bytes(b"")
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="HAILO_INVALID_HEF(26)")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert main([str(hef)]) == 2
+    assert "HAILO_INVALID_HEF" in capsys.readouterr().err

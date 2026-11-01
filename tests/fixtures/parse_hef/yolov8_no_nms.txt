@@ -1,0 +1,11 @@
+Architecture HEF was compiled for: HAILO8L
+Network group name: custom_yolov8s, Single Context
+    Network name: custom_yolov8s/custom_yolov8s
+        VStream infos:
+            Input  custom_yolov8s/input_layer1 UINT8, NHWC(640x640x3)
+            Output custom_yolov8s/conv41 UINT8, NHWC(80x80x64)
+            Output custom_yolov8s/conv42 UINT8, NHWC(80x80x3)
+            Output custom_yolov8s/conv52 UINT8, NHWC(40x40x64)
+            Output custom_yolov8s/conv53 UINT8, NHWC(40x40x3)
+            Output custom_yolov8s/conv62 UINT8, NHWC(20x20x64)
+            Output custom_yolov8s/conv63 UINT8, NHWC(20x20x3)

@@ -8,8 +8,8 @@ model, with small tools that catch the common mistakes before they cost you a da
 Written from my own experience deploying a custom model on a Pi 5 + Hailo-8L.
 Contains no employer code or data.
 
-> **Interim README. Work in progress.** Pre- and post-processing are in place and
-> unit-tested; the checks and the engine are still to come. The plan is below; the
+> **Interim README. Work in progress.** Pre- and post-processing and `hefcheck` are in
+> place and unit-tested; `doctor` and the engine are still to come. The plan is below; the
 > final README (quick start, verification status, limitations) comes with v0.1.0.
 > Nothing in this repo has been validated on hardware yet.
 
@@ -70,7 +70,7 @@ official sources.
 |---|---|---|
 | 1 | Project skeleton, CI ([#1](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/1)) | ✅ done |
 | 2 | Letterbox preprocessing, NMS postprocessing ([#2](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/2)) | ✅ done |
-| 3 | `hefcheck`: architecture, input vs NMS size ([#3](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/3)) | ⏳ planned |
+| 3 | `hefcheck`: architecture, input vs NMS size ([#3](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/3)) | ✅ done |
 | 4 | `doctor`: version, device and import checks ([#4](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/4)) | ⏳ planned |
 | 5 | Inference engine, `InferVStreams` path ([#5](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/5)) | ⏳ planned |
 | 6 | Examples, setup guides, troubleshooting ([#6](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/6)) | ⏳ planned |
@@ -91,6 +91,24 @@ ruff check . && ruff format --check . && mypy && pytest
 The package needs numpy 1.x: the `hailo_platform` that `apt` installs is built
 against it. OpenCV is only needed to letterbox images. On the Pi, use Bookworm's
 `python3-opencv` from `apt`; elsewhere, `pip install -e ".[opencv]"`.
+
+## Check a HEF
+
+On the Pi (runs `hailortcli parse-hef` for you):
+
+```bash
+hailo-yolo-hefcheck /home/pi/models/my_model.hef --device-arch HAILO8L
+```
+
+Anywhere else, on saved output (`hailortcli parse-hef my_model.hef > parse_hef.txt`):
+
+```bash
+hailo-yolo-hefcheck --from-file parse_hef.txt --device-arch HAILO8L
+```
+
+Take `--device-arch` from the `Device Architecture` line of
+`hailortcli fw-control identify`, not from `Board Name`. Exit code 0 means no
+problems, 1 means a warning or error was found, and 2 means the check couldn't run.
 
 ## License
 

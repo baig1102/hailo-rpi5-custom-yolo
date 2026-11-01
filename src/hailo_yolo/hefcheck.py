@@ -40,7 +40,7 @@ class NmsOp:
     score_threshold: float
     iou_threshold: float
     classes: int
-    image_height: int | None  # only YOLO ops print these
+    image_height: int | None  # printed by the YOLOV5 and YOLOV8 ops; None if missing
     image_width: int | None
 
 

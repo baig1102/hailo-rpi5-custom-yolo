@@ -8,8 +8,8 @@ model, with small tools that catch the common mistakes before they cost you a da
 Written from my own experience deploying a custom model on a Pi 5 + Hailo-8L.
 Contains no employer code or data.
 
-> **Interim README. Work in progress.** Pre- and post-processing and `hefcheck` are in
-> place and unit-tested; `doctor` and the engine are still to come. The plan is below; the
+> **Interim README. Work in progress.** Pre- and post-processing, `hefcheck` and `doctor`
+> are in place and unit-tested; the engine is still to come. The plan is below; the
 > final README (quick start, verification status, limitations) comes with v0.1.0.
 > Nothing in this repo has been validated on hardware yet.
 
@@ -71,7 +71,7 @@ official sources.
 | 1 | Project skeleton, CI ([#1](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/1)) | ✅ done |
 | 2 | Letterbox preprocessing, NMS postprocessing ([#2](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/2)) | ✅ done |
 | 3 | `hefcheck`: architecture, input vs NMS size ([#3](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/3)) | ✅ done |
-| 4 | `doctor`: version, device and import checks ([#4](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/4)) | ⏳ planned |
+| 4 | `doctor`: version, device and import checks ([#4](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/4)) | ✅ done |
 | 5 | Inference engine, `InferVStreams` path ([#5](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/5)) | ⏳ planned |
 | 6 | Examples, setup guides, troubleshooting ([#6](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/6)) | ⏳ planned |
 | 7 | Final README, `v0.1.0` ([#7](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/7)) | ⏳ planned |
@@ -91,6 +91,20 @@ ruff check . && ruff format --check . && mypy && pytest
 The package needs numpy 1.x: the `hailo_platform` that `apt` installs is built
 against it. OpenCV is only needed to letterbox images. On the Pi, use Bookworm's
 `python3-opencv` from `apt`; elsewhere, `pip install -e ".[opencv]"`.
+
+## Check the Pi
+
+From a clone of this repo, with the Pi's system Python (no install needed):
+
+```bash
+./scripts/doctor.sh
+```
+
+It checks that HailoRT, the PCIe driver (installed and loaded), the firmware (installed
+and running) and the Python bindings all have the same version. It also checks that a
+device answers, shows its architecture, and checks that `hailo_platform` imports in this
+Python. Each problem comes with what to do. Exit code 0 means no problems, 1 means a
+warning or error was found.
 
 ## Check a HEF
 

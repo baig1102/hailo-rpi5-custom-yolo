@@ -190,14 +190,17 @@ def _check_versions(facts: SetupFacts) -> list[Finding]:
 
 def _check_device(facts: SetupFacts) -> list[Finding]:
     identity = facts.identity
+    if identity is None and facts.cli_version is None:
+        # Without a working hailortcli the device can't be asked; the version check says why.
+        return [Finding("error", "Device not checked: hailortcli isn't working.")]
     if identity is None:
         hints = ["Check the PCIe connection and 'lspci | grep -i hailo'."]
         if facts.driver_loaded is None:
             hints.append("The hailo_pci driver isn't loaded (no /sys/module/hailo_pci).")
-        error = facts.identify_error or ""
+        error = (facts.identify_error or "").strip()
         if "HAILO_OUT_OF_PHYSICAL_DEVICES" in error:
             hints = ["Another process holds the device. Stop it, or run one instance only."]
-        detail = f" It said: {error.strip().splitlines()[-1]}" if error.strip() else ""
+        detail = f" It said: {error.splitlines()[-1].rstrip('.')}." if error else ""
         return [
             Finding(
                 "error",

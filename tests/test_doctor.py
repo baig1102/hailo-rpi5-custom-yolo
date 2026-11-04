@@ -299,3 +299,21 @@ def test_main_with_problems_exits_1(
     fake_pi(monkeypatch, tmp_path, PI_OUTPUTS, driver="4.19.0\n")
     assert doctor.main([]) == 1
     assert "ERROR    Loaded PCIe driver hailo_pci is 4.19.0" in capsys.readouterr().out
+
+
+def test_without_hailortcli_the_device_is_not_blamed() -> None:
+    found = problems(
+        healthy(
+            packages={},
+            cli_version=None,
+            identity=None,
+            identify_error="hailortcli not found or no answer within 30 s",
+        )
+    )
+    assert "Device not checked: hailortcli isn't working." in [f.message for f in found]
+    assert not any("PCIe" in f.message for f in found)
+
+
+def test_device_error_detail_ends_its_own_sentence() -> None:
+    (finding,) = problems(healthy(identity=None, identify_error="Can't find any device\n"))
+    assert "It said: Can't find any device. Check the PCIe" in finding.message

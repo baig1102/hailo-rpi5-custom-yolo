@@ -1,5 +1,6 @@
 import importlib
 import subprocess
+import sys
 import types
 from dataclasses import replace
 from pathlib import Path
@@ -317,3 +318,13 @@ def test_without_hailortcli_the_device_is_not_blamed() -> None:
 def test_device_error_detail_ends_its_own_sentence() -> None:
     (finding,) = problems(healthy(identity=None, identify_error="Can't find any device\n"))
     assert "It said: Can't find any device. Check the PCIe" in finding.message
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the script is for the Pi's bash")
+def test_doctor_script_runs_from_any_directory(tmp_path: Path) -> None:
+    script = Path(__file__).parents[1] / "scripts" / "doctor.sh"
+    result = subprocess.run(
+        ["bash", str(script), "--help"], cwd=tmp_path, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert "usage: hailo-yolo-doctor" in result.stdout

@@ -1,13 +1,17 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from hailo_yolo.doctor import (
+    SetupFacts,
+    check_setup,
     parse_cli_version,
     parse_dpkg,
     parse_identify,
     upstream_version,
 )
+from hailo_yolo.report import Finding
 
 FIXTURES = Path(__file__).parent / "fixtures" / "identify"
 
@@ -71,3 +75,121 @@ def test_parse_identify() -> None:
 def test_parse_identify_rejects_other_text() -> None:
     with pytest.raises(ValueError, match="is this fw-control identify output"):
         parse_identify("[HailoRT] [error] Can't find any device")
+
+
+def healthy(**changes: object) -> SetupFacts:
+    """The verified setup: everything at 4.20.0 on a Hailo-8L, then ``changes`` applied."""
+    facts = SetupFacts(
+        packages=parse_dpkg(DPKG_OK),
+        cli_version="4.20.0",
+        identity=parse_identify((FIXTURES / "hailo8l.txt").read_text()),
+        identify_error=None,
+        driver_loaded="4.20.0",
+        python_version="3.11.2",
+        hailo_platform_version="4.20.0",
+        hailo_platform_error=None,
+        numpy_version="1.26.4",
+    )
+    return replace(facts, **changes)  # type: ignore[arg-type]
+
+
+def problems(facts: SetupFacts) -> list[Finding]:
+    return [f for f in check_setup(facts) if f.level != "info"]
+
+
+def test_healthy_setup_has_no_problems() -> None:
+    findings = check_setup(healthy())
+    assert [f for f in findings if f.level != "info"] == []
+    assert any("Every Hailo part that was found is at 4.20.0" in f.message for f in findings)
+    assert any("--device-arch HAILO8L" in f.message for f in findings)
+
+
+def test_board_name_trap_is_explained() -> None:
+    findings = check_setup(healthy())
+    assert any("the chip is a Hailo-8L" in f.message for f in findings)
+
+
+def test_nothing_installed() -> None:
+    (first, *_) = problems(healthy(packages={}, cli_version=None))
+    assert first.message == "No Hailo packages installed. Run: sudo apt install hailo-all"
+
+
+def test_missing_core_package() -> None:
+    packages = parse_dpkg(DPKG_OK)
+    del packages["hailo-dkms"]
+    (finding,) = problems(healthy(packages=packages))
+    assert finding.message.startswith("Package hailo-dkms is not installed")
+
+
+def test_driver_package_from_an_older_release() -> None:
+    packages = {**parse_dpkg(DPKG_OK), "hailo-dkms": "4.19.0"}
+    found = problems(healthy(packages=packages, driver_loaded="4.19.0"))
+    assert [f.level for f in found] == ["error", "error"]
+    assert "hailo-dkms is 4.19.0, HailoRT is 4.20.0" in found[0].message
+    assert "Loaded PCIe driver hailo_pci is 4.19.0" in found[1].message
+
+
+def test_new_driver_installed_but_not_loaded_yet() -> None:
+    (finding,) = problems(healthy(driver_loaded="4.19.0"))
+    assert finding.level == "error"
+    assert "reboot" in finding.message
+
+
+def test_firmware_from_another_minor_version_is_an_error() -> None:
+    identity = parse_identify((FIXTURES / "hailo8l_fw_4_19.txt").read_text())
+    (finding,) = problems(healthy(identity=identity))
+    assert finding.level == "error"
+    assert "Firmware running on the device is 4.19.0, HailoRT is 4.20.0" in finding.message
+
+
+def test_firmware_revision_difference_is_a_warning() -> None:
+    identity = replace(
+        parse_identify((FIXTURES / "hailo8l.txt").read_text()), firmware_version="4.20.1"
+    )
+    (finding,) = problems(healthy(identity=identity))
+    assert finding.level == "warning"
+
+
+def test_python_bindings_from_another_version() -> None:
+    (finding,) = problems(healthy(hailo_platform_version="4.19.0"))
+    assert finding.level == "error"
+    assert "hailo_platform in this Python is 4.19.0" in finding.message
+
+
+def test_no_device() -> None:
+    (finding,) = problems(
+        healthy(
+            identity=None,
+            identify_error="[HailoRT] [error] Can't find any device\n",
+            driver_loaded=None,
+        )
+    )
+    assert finding.level == "error"
+    assert "It said: [HailoRT] [error] Can't find any device" in finding.message
+    assert "hailo_pci driver isn't loaded" in finding.message
+
+
+def test_device_held_by_another_process() -> None:
+    (finding,) = problems(
+        healthy(identity=None, identify_error="status=HAILO_OUT_OF_PHYSICAL_DEVICES(74)")
+    )
+    assert "Another process holds the device" in finding.message
+
+
+def test_hailo_platform_not_importable_in_a_plain_venv() -> None:
+    (finding,) = problems(
+        healthy(
+            hailo_platform_version=None,
+            hailo_platform_error="No module named 'hailo_platform'",
+            python_version="3.12.4",
+        )
+    )
+    assert finding.level == "error"
+    assert "--system-site-packages" in finding.message
+    assert "built for Python 3.11" in finding.message
+
+
+def test_numpy_2_is_a_warning() -> None:
+    (finding,) = problems(healthy(numpy_version="2.1.0"))
+    assert finding.level == "warning"
+    assert "numpy 2.1.0" in finding.message

@@ -14,6 +14,8 @@ Formats, from HailoRT v4.20.0 (hailo-ai/hailort) unless noted:
 import re
 from dataclasses import dataclass
 
+from hailo_yolo.report import Finding
+
 # Packages that hailo-all 4.20.0+1 pulls in on Raspberry Pi OS Bookworm
 # (archive.raspberrypi.com, bookworm/main, binary-arm64 Packages index).
 HAILO_PACKAGES = (
@@ -81,3 +83,163 @@ def parse_identify(text: str) -> Identity:
         )
     except KeyError as e:
         raise ValueError(f"no {e} line: is this fw-control identify output?") from None
+
+
+@dataclass(frozen=True)
+class SetupFacts:
+    """Everything the checks look at. ``None`` means the probe found nothing or failed."""
+
+    packages: dict[str, str]  # installed Hailo packages -> x.y.z
+    cli_version: str | None  # hailortcli --version
+    identity: Identity | None
+    identify_error: str | None  # what hailortcli printed when identify failed
+    driver_loaded: str | None  # /sys/module/hailo_pci/version
+    python_version: str  # the Python running the doctor, e.g. "3.11.2"
+    hailo_platform_version: str | None
+    hailo_platform_error: str | None
+    numpy_version: str | None
+
+
+# The four parts that must match HailoRT itself; hailo-tappas-core has its own numbering.
+_CORE_PACKAGES = ("hailort", "hailo-dkms", "hailofw", "python3-hailort")
+
+
+def check_setup(facts: SetupFacts) -> list[Finding]:
+    return [
+        *_check_packages(facts),
+        *_check_versions(facts),
+        *_check_device(facts),
+        *_check_python(facts),
+    ]
+
+
+def _check_packages(facts: SetupFacts) -> list[Finding]:
+    if not facts.packages:
+        return [Finding("error", "No Hailo packages installed. Run: sudo apt install hailo-all")]
+    return [
+        Finding("error", f"Package {name} is not installed. Run: sudo apt install hailo-all")
+        for name in _CORE_PACKAGES
+        if name not in facts.packages
+    ]
+
+
+def _minor(version: str) -> str:
+    return version.rsplit(".", 1)[0]
+
+
+def _check_versions(facts: SetupFacts) -> list[Finding]:
+    library = facts.cli_version or facts.packages.get("hailort")
+    if library is None:
+        return [Finding("error", "HailoRT not found: 'hailortcli --version' gave no version.")]
+
+    findings = []
+    # (part, its version, level if it differs, what to do). Sources: the driver must equal the
+    # library exactly (hailort_driver.cpp lines 231-241, v4.20.0); the Python bindings must
+    # match too (my verified setup: every part at the same version).
+    parts = [
+        ("hailort package", facts.packages.get("hailort"), "error", "Reinstall hailo-all."),
+        ("PCIe driver package hailo-dkms", facts.packages.get("hailo-dkms"), "error",
+         "Install the matching hailo-dkms."),
+        ("Loaded PCIe driver hailo_pci", facts.driver_loaded, "error",
+         "If hailo-dkms already matches, reboot to load it."),
+        ("Firmware package hailofw", facts.packages.get("hailofw"), "error",
+         "Install the matching hailofw."),
+        ("python3-hailort package", facts.packages.get("python3-hailort"), "error",
+         "Install the matching python3-hailort."),
+        ("hailo_platform in this Python", facts.hailo_platform_version, "error",
+         "This Python picks up a different hailo_platform than apt installed."),
+    ]  # fmt: skip
+    for part, version, level, fix in parts:
+        if version is not None and version != library:
+            findings.append(Finding(level, f"{part} is {version}, HailoRT is {library}. {fix}"))
+
+    # The firmware's major.minor must match the library, or HailoRT logs "Unsupported firmware
+    # operation" (device.cpp lines 456-468, v4.20.0); the revision may differ.
+    if facts.identity is not None:
+        running = facts.identity.firmware_version
+        if _minor(running) != _minor(library):
+            findings.append(
+                Finding(
+                    "error",
+                    f"Firmware running on the device is {running}, HailoRT is {library}. "
+                    "Install the matching hailofw and reboot.",
+                )
+            )
+        elif running != library:
+            findings.append(
+                Finding(
+                    "warning",
+                    f"Firmware running on the device is {running}, HailoRT is {library}. "
+                    "Reboot to load the installed firmware.",
+                )
+            )
+
+    if not findings:
+        # Missing parts are reported by the other checks; this only vouches for what was found.
+        findings.append(Finding("info", f"Every Hailo part that was found is at {library}."))
+    return findings
+
+
+def _check_device(facts: SetupFacts) -> list[Finding]:
+    identity = facts.identity
+    if identity is None:
+        hints = ["Check the PCIe connection and 'lspci | grep -i hailo'."]
+        if facts.driver_loaded is None:
+            hints.append("The hailo_pci driver isn't loaded (no /sys/module/hailo_pci).")
+        error = facts.identify_error or ""
+        if "HAILO_OUT_OF_PHYSICAL_DEVICES" in error:
+            hints = ["Another process holds the device. Stop it, or run one instance only."]
+        detail = f" It said: {error.strip().splitlines()[-1]}" if error.strip() else ""
+        return [
+            Finding(
+                "error",
+                f"No Hailo device answered 'hailortcli fw-control identify'.{detail} "
+                + " ".join(hints),
+            )
+        ]
+
+    arch = identity.device_architecture
+    findings = [
+        Finding(
+            "info",
+            f"Device: Board Name '{identity.board_name}', Device Architecture {arch}. "
+            f"Check HEFs with: hailo-yolo-hefcheck model.hef --device-arch {arch}",
+        )
+    ]
+    if arch == "HAILO8L" and identity.board_name.replace("-", "").upper() == "HAILO8":
+        findings.append(
+            Finding(
+                "info",
+                "The board name says Hailo-8, but the chip is a Hailo-8L. HEFs must be compiled "
+                "for hailo8l: the Device Architecture decides, not the Board Name.",
+            )
+        )
+    return findings
+
+
+def _check_python(facts: SetupFacts) -> list[Finding]:
+    findings = []
+    if facts.hailo_platform_version is None:
+        message = f"hailo_platform can't be imported in Python {facts.python_version}"
+        if facts.hailo_platform_error:
+            message += f" ({facts.hailo_platform_error})"
+        message += (
+            ". Use the system Python (/usr/bin/python3) or a venv created with "
+            "--system-site-packages."
+        )
+        # python3-hailort 4.20.0-1 depends on python3 (>= 3.11~, << 3.12) in the Raspberry Pi
+        # repository, i.e. it is built for Bookworm's Python 3.11.
+        if not facts.python_version.startswith("3.11."):
+            message += " python3-hailort is built for Python 3.11."
+        findings.append(Finding("error", message))
+
+    if facts.numpy_version is not None and int(facts.numpy_version.split(".")[0]) >= 2:
+        findings.append(
+            Finding(
+                "warning",
+                f"numpy {facts.numpy_version} in this Python. apt's hailo_platform is built "
+                "against Bookworm's numpy 1.24; numpy 2 is untested with it here "
+                "(the verified setup used numpy 1.26.4).",
+            )
+        )
+    return findings

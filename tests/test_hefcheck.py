@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from hailo_yolo.hefcheck import Finding, HefInfo, check_hef, main, parse_hef_output
+from hailo_yolo.hefcheck import HefInfo, check_hef, main, parse_hef_output
+from hailo_yolo.report import Finding
 
 FIXTURES = Path(__file__).parent / "fixtures" / "parse_hef"
 

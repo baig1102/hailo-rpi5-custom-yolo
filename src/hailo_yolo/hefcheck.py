@@ -18,6 +18,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from hailo_yolo.report import Finding, print_findings
+
 
 @dataclass(frozen=True)
 class VStream:
@@ -132,12 +134,6 @@ def _parse_nms_op(text: str) -> NmsOp | None:
         image_height=int(height) if height is not None else None,
         image_width=int(width) if width is not None else None,
     )
-
-
-@dataclass(frozen=True)
-class Finding:
-    level: str  # "error": won't load, "warning": loads but results are wrong or slow, "info"
-    message: str
 
 
 # HEF architectures each device accepts: DeviceBase::is_hef_compatible,
@@ -275,9 +271,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"hefcheck: {e}", file=sys.stderr)
         return 2
 
-    for finding in findings:
-        print(f"{finding.level.upper():8} {finding.message}")
-    return 1 if any(f.level != "info" for f in findings) else 0
+    return print_findings(findings)
 
 
 if __name__ == "__main__":

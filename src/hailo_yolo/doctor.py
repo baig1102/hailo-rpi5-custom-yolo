@@ -11,10 +11,18 @@ Formats, from HailoRT v4.20.0 (hailo-ai/hailort) unless noted:
   hailo-ai/hailort-drivers v4.20.0, linux/pcie/src/pcie.c line 1562.
 """
 
+import argparse
+import importlib
+import importlib.metadata
+import platform
 import re
+import subprocess
+import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
-from hailo_yolo.report import Finding
+from hailo_yolo.report import Finding, print_findings
 
 # Packages that hailo-all 4.20.0+1 pulls in on Raspberry Pi OS Bookworm
 # (archive.raspberrypi.com, bookworm/main, binary-arm64 Packages index).
@@ -243,3 +251,78 @@ def _check_python(facts: SetupFacts) -> list[Finding]:
             )
         )
     return findings
+
+
+DRIVER_VERSION_FILE = Path("/sys/module/hailo_pci/version")
+_TIMEOUT_S = 30  # identify can hang on a stuck device
+
+
+def _run(cmd: list[str]) -> subprocess.CompletedProcess[str] | None:
+    """Run a command; None if it isn't installed or doesn't finish in time."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=_TIMEOUT_S, check=False)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+
+def collect_facts() -> SetupFacts:
+    """Probe this machine. Runs on the Pi; every failure becomes a fact, never an exception."""
+    # dpkg-query exits 1 when a package is unknown but still prints the others.
+    dpkg = _run(["dpkg-query", "-W", "-f", DPKG_FORMAT, *HAILO_PACKAGES])
+    cli = _run(["hailortcli", "--version"])
+
+    identity = identify_error = None
+    ident = _run(["hailortcli", "fw-control", "identify"])
+    if ident is None:
+        identify_error = "hailortcli not found or no answer within 30 s"
+    elif ident.returncode != 0:
+        identify_error = ident.stdout + ident.stderr
+    else:
+        try:
+            identity = parse_identify(ident.stdout)
+        except ValueError as e:
+            identify_error = str(e)
+
+    try:
+        driver_loaded: str | None = DRIVER_VERSION_FILE.read_text().strip()
+    except OSError:
+        driver_loaded = None
+
+    platform_version = platform_error = None
+    try:
+        # Imported here, never at the top: the rest of the package must work without it.
+        hailo_platform = importlib.import_module("hailo_platform")
+        platform_version = str(hailo_platform.__version__)
+    except Exception as e:  # any import failure is the finding itself
+        platform_error = f"{type(e).__name__}: {e}"
+
+    try:
+        numpy_version: str | None = importlib.metadata.version("numpy")
+    except importlib.metadata.PackageNotFoundError:
+        numpy_version = None
+
+    return SetupFacts(
+        packages=parse_dpkg(dpkg.stdout) if dpkg else {},
+        cli_version=parse_cli_version(cli.stdout) if cli else None,
+        identity=identity,
+        identify_error=identify_error,
+        driver_loaded=driver_loaded,
+        python_version=platform.python_version(),
+        hailo_platform_version=platform_version,
+        hailo_platform_error=platform_error,
+        numpy_version=numpy_version,
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Exit code 0: no problems, 1: warnings or errors found."""
+    argparse.ArgumentParser(
+        prog="hailo-yolo-doctor",
+        description="Check the Hailo setup on this Raspberry Pi: versions, device, Python.",
+    ).parse_args(argv)
+    print(f"Python {platform.python_version()} at {sys.executable}")
+    return print_findings(check_setup(collect_facts()))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

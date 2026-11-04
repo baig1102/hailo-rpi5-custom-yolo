@@ -1,8 +1,12 @@
+import importlib
+import subprocess
+import types
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from hailo_yolo import doctor
 from hailo_yolo.doctor import (
     SetupFacts,
     check_setup,
@@ -193,3 +197,105 @@ def test_numpy_2_is_a_warning() -> None:
     (finding,) = problems(healthy(numpy_version="2.1.0"))
     assert finding.level == "warning"
     assert "numpy 2.1.0" in finding.message
+
+
+def fake_pi(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    outputs: dict[str, tuple[int, str] | None],
+    driver: str | None = "4.20.0\n",
+    platform_version: str | None = "4.20.0",
+) -> list[list[str]]:
+    """Fake the commands, the driver's sysfs file and the hailo_platform import.
+
+    ``outputs`` maps a command's first words to (exit code, stdout), or None if not installed.
+    """
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        key = " ".join(cmd[:3]) if cmd[0] == "hailortcli" else cmd[0]
+        result = outputs.get(key)
+        if result is None:
+            raise FileNotFoundError(2, "No such file or directory", cmd[0])
+        return subprocess.CompletedProcess(cmd, result[0], stdout=result[1], stderr="")
+
+    def fake_import(name: str) -> object:
+        if platform_version is None:
+            raise ModuleNotFoundError("No module named 'hailo_platform'")
+        return types.SimpleNamespace(__version__=platform_version)
+
+    version_file = tmp_path / "version"
+    if driver is not None:
+        version_file.write_text(driver)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    monkeypatch.setattr(doctor, "DRIVER_VERSION_FILE", version_file)
+    return calls
+
+
+PI_OUTPUTS: dict[str, tuple[int, str] | None] = {
+    "dpkg-query": (0, DPKG_OK),
+    "hailortcli --version": (0, "HailoRT-CLI version 4.20.0\n"),
+    "hailortcli fw-control identify": (0, (FIXTURES / "hailo8l.txt").read_text()),
+}
+
+
+def test_collect_facts_on_a_healthy_pi(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls = fake_pi(monkeypatch, tmp_path, PI_OUTPUTS)
+    facts = doctor.collect_facts()
+    assert facts.packages["hailo-dkms"] == "4.20.0"
+    assert facts.cli_version == "4.20.0"
+    assert facts.identity is not None
+    assert facts.identity.device_architecture == "HAILO8L"
+    assert facts.driver_loaded == "4.20.0"
+    assert facts.hailo_platform_version == "4.20.0"
+    assert calls[0] == ["dpkg-query", "-W", "-f", doctor.DPKG_FORMAT, *doctor.HAILO_PACKAGES]
+
+
+def test_collect_facts_without_any_hailo_software(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake_pi(monkeypatch, tmp_path, {"dpkg-query": (1, "")}, driver=None, platform_version=None)
+    facts = doctor.collect_facts()
+    assert facts.packages == {}
+    assert facts.cli_version is None
+    assert facts.identity is None
+    assert facts.identify_error == "hailortcli not found or no answer within 30 s"
+    assert facts.driver_loaded is None
+    assert facts.hailo_platform_error == "ModuleNotFoundError: No module named 'hailo_platform'"
+
+
+def test_collect_facts_when_identify_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    outputs = {**PI_OUTPUTS, "hailortcli fw-control identify": (1, "Can't find any device\n")}
+    fake_pi(monkeypatch, tmp_path, outputs)
+    facts = doctor.collect_facts()
+    assert facts.identity is None
+    assert facts.identify_error == "Can't find any device\n"
+
+
+def test_identify_that_hangs_is_reported(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    fake_pi(monkeypatch, tmp_path, PI_OUTPUTS)
+
+    def hanging_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(cmd, 30)
+
+    monkeypatch.setattr(subprocess, "run", hanging_run)
+    assert doctor.collect_facts().identify_error == "hailortcli not found or no answer within 30 s"
+
+
+def test_main_on_a_healthy_pi_exits_0(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake_pi(monkeypatch, tmp_path, PI_OUTPUTS)
+    assert doctor.main([]) == 0
+    out = capsys.readouterr().out
+    assert "INFO     Every Hailo part that was found is at 4.20.0." in out
+
+
+def test_main_with_problems_exits_1(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake_pi(monkeypatch, tmp_path, PI_OUTPUTS, driver="4.19.0\n")
+    assert doctor.main([]) == 1
+    assert "ERROR    Loaded PCIe driver hailo_pci is 4.19.0" in capsys.readouterr().out

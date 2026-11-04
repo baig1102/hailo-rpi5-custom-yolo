@@ -23,6 +23,7 @@ opencv = ["opencv-python-headless>=4.8,<4.12"]
 dev = ["pytest>=8", "ruff>=0.15", "mypy>=1.11", "opencv-python-headless>=4.8,<4.12"]
 
 [project.scripts]
+hailo-yolo-doctor = "hailo_yolo.doctor:main"
 hailo-yolo-hefcheck = "hailo_yolo.hefcheck:main"
 
 [tool.setuptools.packages.find]

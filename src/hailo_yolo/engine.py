@@ -19,6 +19,12 @@ from pathlib import Path
 from types import ModuleType, TracebackType
 from typing import Any
 
+import numpy as np
+import numpy.typing as npt
+
+from hailo_yolo.postprocess import Detection, NmsDetections, from_tf_format, to_detections
+from hailo_yolo.preprocess import letterbox_image
+
 log = logging.getLogger(__name__)
 
 
@@ -98,6 +104,27 @@ class HefEngine:
             # Everything opened: keep it open until close().
             self._stack = stack.pop_all()
         return self
+
+    def infer(self, model_input: npt.NDArray[np.uint8]) -> NmsDetections:
+        """Run one frame that is already letterboxed RGB of exactly ``input_shape``."""
+        if self._pipeline is None:
+            raise RuntimeError("engine is not open: use it as a context manager or call open()")
+        if model_input.shape != self.input_shape or model_input.dtype != np.uint8:
+            raise ValueError(
+                f"model input must be uint8 {self.input_shape}, "
+                f"got {model_input.dtype} {model_input.shape}"
+            )
+        batch = np.ascontiguousarray(model_input)[np.newaxis]  # HailoRT wants (N, H, W, C)
+        outputs = self._pipeline.infer({self.input_name: batch})
+        return from_tf_format(outputs[self.output_name][0])
+
+    def detect(
+        self, rgb_image: npt.NDArray[np.uint8], *, score_threshold: float
+    ) -> list[Detection]:
+        """Letterbox an RGB image of any size, run it, and return boxes on that image."""
+        height, width, _ = self.input_shape
+        model_input, lb = letterbox_image(rgb_image, width, height)
+        return to_detections(self.infer(model_input), lb, score_threshold=score_threshold)
 
     def _open_vdevice(self, hp: Any) -> Any:
         """``VDevice()``, retried while another process holds the chip.

@@ -1,6 +1,8 @@
 import importlib
 from pathlib import Path
 
+import numpy as np
+import numpy.typing as npt
 import pytest
 from fake_hailo_platform import FakeHailo, HailoRTException
 
@@ -151,3 +153,47 @@ def test_other_device_errors_are_not_retried(hef: Path) -> None:
 def test_attempts_must_be_positive(hef: Path) -> None:
     with pytest.raises(ValueError, match="attempts must be at least 1"):
         HefEngine(hef, attempts=0)
+
+
+def test_infer_sends_one_uint8_frame_as_a_batch(hef: Path) -> None:
+    fake = FakeHailo()
+    frame = np.zeros((640, 640, 3), dtype=np.uint8)
+    with engine(hef, fake) as e:
+        nms = e.infer(frame)
+    (sent,) = fake.infer_inputs
+    assert list(sent) == ["net/input_layer1"]
+    assert sent["net/input_layer1"].shape == (1, 640, 640, 3)
+    assert sent["net/input_layer1"].dtype == np.uint8
+    best = int(np.argmax(nms.scores))
+    assert nms.class_ids[best] == 1
+    np.testing.assert_allclose(nms.boxes[best], [0.25, 0.25, 0.75, 0.50])
+
+
+def test_detect_returns_boxes_on_the_original_image(hef: Path) -> None:
+    # 1280 x 720 into 640 x 640: scale 0.5, 140 rows of padding on top. The fake's box covers
+    # x 160..320 and y 160..480 in model-input pixels.
+    image = np.zeros((720, 1280, 3), dtype=np.uint8)
+    with engine(hef, FakeHailo()) as e:
+        (det,) = e.detect(image, score_threshold=0.5)
+    assert det.class_id == 1
+    assert det.score == pytest.approx(0.9)
+    assert (det.x1, det.y1, det.x2, det.y2) == pytest.approx((320, 40, 640, 680))
+
+
+def test_infer_on_a_closed_engine_is_refused(hef: Path) -> None:
+    e = engine(hef, FakeHailo())
+    with pytest.raises(RuntimeError, match="engine is not open"):
+        e.infer(np.zeros((640, 640, 3), dtype=np.uint8))
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [np.zeros((480, 640, 3), dtype=np.uint8), np.zeros((640, 640, 3), dtype=np.float32)],
+)
+def test_infer_refuses_a_frame_that_does_not_match_the_input(
+    hef: Path, frame: npt.NDArray[np.generic]
+) -> None:
+    fake = FakeHailo()
+    with engine(hef, fake) as e, pytest.raises(ValueError, match=r"model input must be uint8"):
+        e.infer(frame)  # type: ignore[arg-type]
+    assert "infer" not in fake.log

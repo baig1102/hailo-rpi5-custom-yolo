@@ -11,10 +11,15 @@ to run in another process than the one that created the device (pyhailort.py lin
 """
 
 import importlib
+import logging
+import time
+from collections.abc import Callable
 from contextlib import ExitStack
 from pathlib import Path
 from types import ModuleType, TracebackType
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 class HefEngine:
@@ -25,9 +30,27 @@ class HefEngine:
     inference still runs ends in ``HAILO_STREAM_ABORT``.
     """
 
-    def __init__(self, hef_path: str | Path, *, platform_module: ModuleType | None = None) -> None:
-        """``platform_module`` replaces ``hailo_platform``; only tests pass it."""
+    def __init__(
+        self,
+        hef_path: str | Path,
+        *,
+        attempts: int = 5,
+        first_delay_s: float = 1.0,
+        sleep: Callable[[float], None] = time.sleep,
+        platform_module: ModuleType | None = None,
+    ) -> None:
+        """Try to get the device up to ``attempts`` times, doubling the wait each time.
+
+        The defaults wait 1 + 2 + 4 + 8 = 15 s in total, long enough for a crashed process to
+        let go of the chip. ``sleep`` and ``platform_module`` (instead of ``hailo_platform``)
+        are for tests.
+        """
+        if attempts < 1:
+            raise ValueError(f"attempts must be at least 1, got {attempts}")
         self.hef_path = Path(hef_path).expanduser().resolve()
+        self.attempts = attempts
+        self.first_delay_s = first_delay_s
+        self._sleep = sleep
         self._platform = platform_module
         self._stack: ExitStack | None = None
         self._pipeline: Any = None
@@ -46,7 +69,7 @@ class HefEngine:
 
         with ExitStack() as stack:
             hef = hp.HEF(str(self.hef_path))  # HEF() takes a str path, not a Path
-            vdevice = hp.VDevice()
+            vdevice = self._open_vdevice(hp)
             stack.callback(vdevice.release)
 
             params = hp.ConfigureParams.create_from_hef(hef, interface=hp.HailoStreamInterface.PCIe)
@@ -75,6 +98,29 @@ class HefEngine:
             # Everything opened: keep it open until close().
             self._stack = stack.pop_all()
         return self
+
+    def _open_vdevice(self, hp: Any) -> Any:
+        """``VDevice()``, retried while another process holds the chip.
+
+        HailoRT 4.20 has no own exception class for this status: it arrives as a plain
+        ``HailoRTException`` whose message names it (pyhailort.py line 161).
+        """
+        delay = self.first_delay_s
+        for attempt in range(1, self.attempts + 1):
+            try:
+                return hp.VDevice()
+            except hp.HailoRTException as e:
+                if "HAILO_OUT_OF_PHYSICAL_DEVICES" not in str(e) or attempt == self.attempts:
+                    raise
+                log.warning(
+                    "Hailo device busy (attempt %d of %d), retrying in %.1f s",
+                    attempt,
+                    self.attempts,
+                    delay,
+                )
+                self._sleep(delay)
+                delay *= 2
+        raise AssertionError("unreachable")  # the loop either returns or raises
 
     def close(self) -> None:
         """Stop the pipeline, deactivate, release the device. Safe to call more than once."""

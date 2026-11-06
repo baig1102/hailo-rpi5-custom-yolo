@@ -117,3 +117,37 @@ def test_hailo_platform_is_imported_on_open_not_before(
     assert imported == []
     with e:
         assert imported == ["hailo_platform"]
+
+
+def test_busy_device_is_retried_with_doubling_waits(hef: Path) -> None:
+    fake = FakeHailo(busy_attempts=3)
+    waits: list[float] = []
+    e = HefEngine(hef, sleep=waits.append, platform_module=fake.module())  # type: ignore[arg-type]
+    with e:
+        assert waits == [1.0, 2.0, 4.0]
+        assert fake.log.count("VDevice busy") == 3
+        assert fake.log.count("VDevice") == 1
+
+
+def test_busy_device_gives_up_after_the_last_attempt(hef: Path) -> None:
+    fake = FakeHailo(busy_attempts=10)
+    waits: list[float] = []
+    e = HefEngine(hef, attempts=3, sleep=waits.append, platform_module=fake.module())  # type: ignore[arg-type]
+    with pytest.raises(HailoRTException, match="HAILO_OUT_OF_PHYSICAL_DEVICES"):
+        e.open()
+    assert waits == [1.0, 2.0]  # no wait after the last attempt
+    assert "VDevice.release" not in fake.log  # nothing was opened, nothing to release
+
+
+def test_other_device_errors_are_not_retried(hef: Path) -> None:
+    fake = FakeHailo(fail_on="VDevice")
+    waits: list[float] = []
+    e = HefEngine(hef, sleep=waits.append, platform_module=fake.module())  # type: ignore[arg-type]
+    with pytest.raises(HailoRTException, match="fake failure in VDevice"):
+        e.open()
+    assert waits == []
+
+
+def test_attempts_must_be_positive(hef: Path) -> None:
+    with pytest.raises(ValueError, match="attempts must be at least 1"):
+        HefEngine(hef, attempts=0)

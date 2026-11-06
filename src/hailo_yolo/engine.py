@@ -32,8 +32,12 @@ class HefEngine:
     """Owns the device, the configured network and the inference pipeline for one HEF.
 
     Use it as a context manager. Shutdown always runs in reverse order of opening: stop the
-    pipeline, deactivate the network, release the device. Releasing the device while
-    inference still runs ends in ``HAILO_STREAM_ABORT``.
+    pipeline, deactivate the network, release the device. On my setup, releasing the device
+    while inference still ran ended in ``HAILO_STREAM_ABORT``.
+
+    Not thread-safe: let one worker thread own the engine (open, every ``infer``, close). A
+    frame that is sent while another thread reconfigures the camera or closes the engine is
+    how ``HAILO_TIMEOUT`` and ``HAILO_STREAM_ABORT`` happened on my setup.
     """
 
     def __init__(

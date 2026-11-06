@@ -8,8 +8,8 @@ model, with small tools that catch the common mistakes before they cost you a da
 Written from my own experience deploying a custom model on a Pi 5 + Hailo-8L.
 Contains no employer code or data.
 
-> **Interim README. Work in progress.** Pre- and post-processing, `hefcheck` and `doctor`
-> are in place and unit-tested; the engine is still to come. The plan is below; the
+> **Interim README. Work in progress.** Pre- and post-processing, `hefcheck`, `doctor` and
+> the engine are in place and unit-tested; examples and guides are next. The plan is below; the
 > final README (quick start, verification status, limitations) comes with v0.1.0.
 > Nothing in this repo has been validated on hardware yet.
 
@@ -72,7 +72,7 @@ official sources.
 | 2 | Letterbox preprocessing, NMS postprocessing ([#2](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/2)) | ✅ done |
 | 3 | `hefcheck`: architecture, input vs NMS size ([#3](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/3)) | ✅ done |
 | 4 | `doctor`: version, device and import checks ([#4](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/4)) | ✅ done |
-| 5 | Inference engine, `InferVStreams` path ([#5](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/5)) | ⏳ planned |
+| 5 | Inference engine, `InferVStreams` path ([#5](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/5)) | ✅ done |
 | 6 | Examples, setup guides, troubleshooting ([#6](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/6)) | ⏳ planned |
 | 7 | Final README, `v0.1.0` ([#7](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/7)) | ⏳ planned |
 
@@ -91,6 +91,22 @@ ruff check . && ruff format --check . && mypy && pytest
 The package needs numpy 1.x: the `hailo_platform` that `apt` installs is built
 against it. OpenCV is only needed to letterbox images. On the Pi, use Bookworm's
 `python3-opencv` from `apt`; elsewhere, `pip install -e ".[opencv]"`.
+
+## Run a HEF
+
+```python
+from hailo_yolo.engine import HefEngine
+
+with HefEngine("/home/pi/models/my_model.hef") as engine:
+    detections = engine.detect(rgb_image, score_threshold=0.5)  # any size, RGB, uint8
+for d in detections:
+    print(d.class_id, round(d.score, 2), d.x1, d.y1, d.x2, d.y2)  # pixels on rgb_image
+```
+
+The engine uses the legacy `InferVStreams` API, the one that worked on my setup. It
+checks the HEF path, retries while another process holds the chip, and always shuts
+down in the same order. Let one thread own it. Not run on hardware yet; the tests use
+a fake `hailo_platform`.
 
 ## Check the Pi
 

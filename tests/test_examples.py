@@ -133,3 +133,18 @@ def test_worker_closes_the_camera_when_the_engine_fails(
 
 def test_parse_size() -> None:
     assert load_example("infer_picamera2").parse_size("1280x720") == (1280, 720)
+
+
+def test_service_unit_uses_absolute_paths_and_restarts_with_a_delay() -> None:
+    import configparser
+
+    unit = configparser.ConfigParser(strict=False, interpolation=None)
+    unit.optionxform = str  # type: ignore[assignment,method-assign]  # keep key case
+    unit.read(EXAMPLES / "hailo-app.service")
+    service = unit["Service"]
+    assert all(part.startswith("%h/") for part in service["ExecStart"].split())
+    assert service["WorkingDirectory"].startswith("%h/")
+    assert service["Restart"] == "on-failure"
+    assert int(service["RestartSec"]) >= 5
+    assert service["KillSignal"] == "SIGTERM"
+    assert unit["Install"]["WantedBy"] == "default.target"

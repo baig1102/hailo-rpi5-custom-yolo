@@ -1,0 +1,41 @@
+# Run the camera example as a systemd *user* service on the Pi.
+#
+# Install (as the user that owns the camera, e.g. pi):
+#   mkdir -p ~/.config/systemd/user
+#   cp examples/hailo-app.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now hailo-app.service
+#   sudo loginctl enable-linger "$USER"    # start at boot without anyone logging in
+# Logs:  journalctl --user -u hailo-app -f
+# Stop:  systemctl --user stop hailo-app
+#
+# Start the app from here only. A second copy from a desktop autostart entry or a cron
+# @reboot races this one for the chip (HAILO_OUT_OF_PHYSICAL_DEVICES). systemd itself never
+# runs two instances of the same unit.
+#
+# The example is headless. If your app opens a window, it must wait for the desktop: a
+# window opened before it is up fails with "couldn't connect to display". Start such an app
+# from the desktop session instead, and check how your desktop starts user services first.
+
+[Unit]
+Description=Hailo YOLO camera app
+# After 5 failed starts within 2 minutes, stop retrying instead of looping forever.
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# Absolute paths only: a service does not start in your project directory. %h is your home.
+WorkingDirectory=%h/hailo-rpi5-custom-yolo
+ExecStart=%h/hailo-rpi5-custom-yolo/.venv/bin/python %h/hailo-rpi5-custom-yolo/examples/infer_picamera2.py %h/models/my_model.hef
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+# Wait before a restart so the crashed process has let go of the chip. The engine also
+# retries for up to 15 s while the chip is still busy.
+RestartSec=5
+# SIGTERM makes the example stop its worker, which releases the device in order.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

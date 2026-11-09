@@ -48,6 +48,11 @@ python_version = "3.11"
 strict = true
 files = ["src", "tests", "examples"]
 
+[[tool.mypy.overrides]]
+# Installed from apt on the Pi only; the camera example imports it lazily.
+module = ["picamera2"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"

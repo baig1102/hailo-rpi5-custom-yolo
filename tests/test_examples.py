@@ -1,12 +1,18 @@
 import importlib
 import importlib.util
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 import pytest
 from fake_hailo_platform import FakeHailo
+
+from hailo_yolo.postprocess import Detection
 
 EXAMPLES = Path(__file__).parents[1] / "examples"
 
@@ -56,3 +62,74 @@ def test_infer_image_missing_image_exits_2(tmp_path: Path, fake_hailo: FakeHailo
     code = load_example("infer_image").main([str(hef), str(tmp_path / "no.png"), "out.png"])
     assert code == 2
     assert fake_hailo.log == []  # the device was never opened
+
+
+class FakeCamera:
+    """Stands in for Picamera2: RGB888 frames are B, G, R arrays of the configured size."""
+
+    def __init__(self, log: list[str], width: int, height: int) -> None:
+        self.log, self.shape = log, (height, width, 3)
+
+    def capture_array(self, name: str) -> npt.NDArray[np.uint8]:
+        self.log.append("capture")
+        return np.zeros(self.shape, dtype=np.uint8)
+
+
+def fake_camera_factory(log: list[str]) -> object:
+    @contextmanager
+    def factory(width: int, height: int) -> Iterator[FakeCamera]:
+        log.append("camera.open")
+        try:
+            yield FakeCamera(log, width, height)
+        finally:
+            log.append("camera.close")
+
+    return factory
+
+
+def test_worker_owns_camera_and_engine_and_closes_in_order(
+    tmp_path: Path, fake_hailo: FakeHailo
+) -> None:
+    example = load_example("infer_picamera2")
+    hef = tmp_path / "model.hef"
+    hef.write_bytes(b"")
+    stop = threading.Event()
+    log = fake_hailo.log  # camera and Hailo calls in one log, so their order is visible
+    seen: list[int] = []
+
+    def on_frame(frame: npt.NDArray[np.uint8], detections: list[Detection]) -> None:
+        seen.append(len(detections))
+        if len(seen) == 3:
+            stop.set()
+
+    frames = example.worker(
+        hef, (1280, 720), 0.5, stop, on_frame, camera_factory=fake_camera_factory(log)
+    )
+
+    assert frames == 3
+    assert seen == [1, 1, 1]
+    assert log[:2] == ["camera.open", "HEF"]  # camera first, then the engine
+    assert [e for e in log if e in ("capture", "infer")] == ["capture", "infer"] * 3
+    # Engine shut down completely before the camera closes.
+    assert log[-4:] == ["pipeline.exit", "activation.exit", "VDevice.release", "camera.close"]
+
+
+def test_worker_closes_the_camera_when_the_engine_fails(
+    tmp_path: Path, fake_hailo: FakeHailo
+) -> None:
+    example = load_example("infer_picamera2")
+    camera_log: list[str] = []
+    with pytest.raises(FileNotFoundError):
+        example.worker(
+            tmp_path / "missing.hef",
+            (640, 480),
+            0.5,
+            threading.Event(),
+            lambda frame, detections: None,
+            camera_factory=fake_camera_factory(camera_log),
+        )
+    assert camera_log == ["camera.open", "camera.close"]
+
+
+def test_parse_size() -> None:
+    assert load_example("infer_picamera2").parse_size("1280x720") == (1280, 720)

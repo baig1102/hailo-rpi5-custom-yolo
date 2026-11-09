@@ -8,8 +8,8 @@ model, with small tools that catch the common mistakes before they cost you a da
 Written from my own experience deploying a custom model on a Pi 5 + Hailo-8L.
 Contains no employer code or data.
 
-> **Interim README. Work in progress.** Pre- and post-processing, `hefcheck`, `doctor` and
-> the engine are in place and unit-tested; examples and guides are next. The plan is below; the
+> **Interim README. Work in progress.** The tools, examples and guides are in place, and
+> the code is unit-tested; the final README comes next. The plan is below; the
 > final README (quick start, verification status, limitations) comes with v0.1.0.
 > Nothing in this repo has been validated on hardware yet.
 
@@ -44,6 +44,17 @@ This repo turns those lessons into a guide plus a few checks you can run on the 
 - **Docs:** Pi setup, running your model, a compile overview and a
   troubleshooting page written as symptom → cause → fix.
 
+## Guides
+
+1. [Set up the Pi](docs/01-pi-setup.md): install, verify, run the doctor
+2. [Run your model](docs/02-run-your-model.md): check the HEF, run it, read the output
+3. [From your model to a HEF](docs/03-compile-overview.md): overview only, not yet a tested recipe
+4. [Troubleshooting](docs/troubleshooting.md): 13 problems, each as symptom → cause → fix
+
+Examples: [`infer_image.py`](examples/infer_image.py) (one image),
+[`infer_picamera2.py`](examples/infer_picamera2.py) (live camera) and
+[`hailo-app.service`](examples/hailo-app.service) (start at boot).
+
 All logic is plain Python and unit-tested in CI without Hailo hardware.
 
 ## The setup this is based on
@@ -64,6 +75,10 @@ run on it yet.
 Hailo's software isn't included here. Get it from Raspberry Pi's and Hailo's
 official sources.
 
+Raspberry Pi's AI documentation now targets Raspberry Pi OS Trixie, which ships
+HailoRT 4.23. The doctor knows Trixie's package names, but nothing here has been
+tested against 4.23.
+
 ## Status
 
 | # | Milestone | Status |
@@ -73,7 +88,7 @@ official sources.
 | 3 | `hefcheck`: architecture, input vs NMS size ([#3](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/3)) | ✅ done |
 | 4 | `doctor`: version, device and import checks ([#4](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/4)) | ✅ done |
 | 5 | Inference engine, `InferVStreams` path ([#5](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/5)) | ✅ done |
-| 6 | Examples, setup guides, troubleshooting ([#6](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/6)) | ⏳ planned |
+| 6 | Examples, setup guides, troubleshooting ([#6](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/6)) | ✅ done |
 | 7 | Final README, `v0.1.0` ([#7](https://github.com/baig1102/hailo-rpi5-custom-yolo/issues/7)) | ⏳ planned |
 
 ## Development

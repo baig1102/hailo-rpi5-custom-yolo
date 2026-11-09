@@ -238,10 +238,14 @@ def _check_python(facts: SetupFacts) -> list[Finding]:
             ". Use the system Python (/usr/bin/python3) or a venv created with "
             "--system-site-packages."
         )
-        # python3-hailort 4.20.0-1 depends on python3 (>= 3.11~, << 3.12) in the Raspberry Pi
-        # repository, i.e. it is built for Bookworm's Python 3.11.
-        if not facts.python_version.startswith("3.11."):
-            message += " python3-hailort is built for Python 3.11."
+        # apt's python3-hailort only works with the OS's own Python: in the Raspberry Pi
+        # repository, 4.20.0-1 (Bookworm) depends on python3 >= 3.11, << 3.12 and 4.23.0-1
+        # (Trixie) on python3 >= 3.13, << 3.14.
+        if not facts.python_version.startswith(("3.11.", "3.13.")):
+            message += (
+                " apt's python3-hailort only works with the system Python "
+                "(3.11 on Bookworm, 3.13 on Trixie)."
+            )
         findings.append(Finding("error", message))
 
     if facts.numpy_version is not None and int(facts.numpy_version.split(".")[0]) >= 2:

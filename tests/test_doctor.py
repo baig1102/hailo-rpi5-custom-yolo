@@ -191,7 +191,7 @@ def test_hailo_platform_not_importable_in_a_plain_venv() -> None:
     )
     assert finding.level == "error"
     assert "--system-site-packages" in finding.message
-    assert "built for Python 3.11" in finding.message
+    assert "3.11 on Bookworm, 3.13 on Trixie" in finding.message
 
 
 def test_numpy_2_is_a_warning() -> None:
@@ -328,3 +328,10 @@ def test_doctor_script_runs_from_any_directory(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "usage: hailo-yolo-doctor" in result.stdout
+
+
+def test_python_hint_is_not_given_for_the_trixie_system_python() -> None:
+    (finding,) = problems(
+        healthy(hailo_platform_version=None, hailo_platform_error="x", python_version="3.13.5")
+    )
+    assert "system Python (3.11" not in finding.message

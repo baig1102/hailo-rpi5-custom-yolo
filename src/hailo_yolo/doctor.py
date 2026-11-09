@@ -24,13 +24,16 @@ from pathlib import Path
 
 from hailo_yolo.report import Finding, print_findings
 
-# Packages that hailo-all 4.20.0+1 pulls in on Raspberry Pi OS Bookworm
-# (archive.raspberrypi.com, bookworm/main, binary-arm64 Packages index).
+# Packages that hailo-all pulls in, from the Raspberry Pi repository's arm64 Packages and
+# Contents indexes (archive.raspberrypi.com). Bookworm (hailo-all 4.20.0+1): driver hailo-dkms,
+# firmware hailofw. Trixie (hailo-all 5.1.1): driver hailort-pcie-driver, which also ships the
+# firmware (/lib/firmware/hailo/hailo8_fw.4.23.0.bin), so there is no hailofw.
 HAILO_PACKAGES = (
     "hailo-all",
     "hailort",
     "hailo-dkms",
     "hailofw",
+    "hailort-pcie-driver",
     "python3-hailort",
     "hailo-tappas-core",
 )
@@ -108,8 +111,11 @@ class SetupFacts:
     numpy_version: str | None
 
 
-# The four parts that must match HailoRT itself; hailo-tappas-core has its own numbering.
-_CORE_PACKAGES = ("hailort", "hailo-dkms", "hailofw", "python3-hailort")
+_DRIVER_PACKAGES = ("hailo-dkms", "hailort-pcie-driver")  # Bookworm, Trixie
+
+
+def _driver_package(packages: dict[str, str]) -> str | None:
+    return next((name for name in _DRIVER_PACKAGES if name in packages), None)
 
 
 def check_setup(facts: SetupFacts) -> list[Finding]:
@@ -124,10 +130,16 @@ def check_setup(facts: SetupFacts) -> list[Finding]:
 def _check_packages(facts: SetupFacts) -> list[Finding]:
     if not facts.packages:
         return [Finding("error", "No Hailo packages installed. Run: sudo apt install hailo-all")]
+    # The parts that must match HailoRT itself; hailo-tappas-core has its own numbering.
+    driver = _driver_package(facts.packages)
+    missing = [name for name in ("hailort", "python3-hailort") if name not in facts.packages]
+    if driver is None:
+        missing.append("hailo-dkms (Bookworm) or hailort-pcie-driver (Trixie)")
+    elif driver == "hailo-dkms" and "hailofw" not in facts.packages:
+        missing.append("hailofw")  # on Trixie the firmware comes with the driver package
     return [
         Finding("error", f"Package {name} is not installed. Run: sudo apt install hailo-all")
-        for name in _CORE_PACKAGES
-        if name not in facts.packages
+        for name in missing
     ]
 
 
@@ -140,14 +152,15 @@ def _check_versions(facts: SetupFacts) -> list[Finding]:
     if library is None:
         return [Finding("error", "HailoRT not found: 'hailortcli --version' gave no version.")]
 
+    driver = _driver_package(facts.packages)
     findings = []
     # (part, its version, level if it differs, what to do). Sources: the driver must equal the
     # library exactly (hailort_driver.cpp lines 231-241, v4.20.0); the Python bindings must
     # match too (my verified setup: every part at the same version).
     parts = [
         ("hailort package", facts.packages.get("hailort"), "error", "Reinstall hailo-all."),
-        ("PCIe driver package hailo-dkms", facts.packages.get("hailo-dkms"), "error",
-         "Install the matching hailo-dkms."),
+        (f"PCIe driver package {driver}", facts.packages.get(driver or ""), "error",
+         f"Install the matching {driver}."),
         ("Loaded PCIe driver hailo_pci", facts.driver_loaded, "error",
          "If hailo-dkms already matches, reboot to load it."),
         ("Firmware package hailofw", facts.packages.get("hailofw"), "error",

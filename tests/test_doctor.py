@@ -123,7 +123,7 @@ def test_missing_core_package() -> None:
     packages = parse_dpkg(DPKG_OK)
     del packages["hailo-dkms"]
     (finding,) = problems(healthy(packages=packages))
-    assert finding.message.startswith("Package hailo-dkms is not installed")
+    assert finding.message.startswith("Package hailo-dkms (Bookworm) or hailort-pcie-driver")
 
 
 def test_driver_package_from_an_older_release() -> None:
@@ -335,3 +335,54 @@ def test_python_hint_is_not_given_for_the_trixie_system_python() -> None:
         healthy(hailo_platform_version=None, hailo_platform_error="x", python_version="3.13.5")
     )
     assert "system Python (3.11" not in finding.message
+
+
+# Trixie layout: the driver package ships the firmware, there is no hailofw (synthetic).
+DPKG_TRIXIE = (
+    "hailo-all\t5.1.1\tii \n"
+    "hailort\t4.23.0\tii \n"
+    "hailort-pcie-driver\t4.23.0\tii \n"
+    "python3-hailort\t4.23.0-1\tii \n"
+    "hailo-tappas-core\t5.1.0\tii \n"
+)
+
+
+def test_trixie_package_layout_is_accepted() -> None:
+    identity = replace(
+        parse_identify((FIXTURES / "hailo8l.txt").read_text()), firmware_version="4.23.0"
+    )
+    facts = healthy(
+        packages=parse_dpkg(DPKG_TRIXIE),
+        cli_version="4.23.0",
+        identity=identity,
+        driver_loaded="4.23.0",
+        python_version="3.13.5",
+        hailo_platform_version="4.23.0",
+    )
+    assert problems(facts) == []
+
+
+def test_trixie_driver_from_another_version() -> None:
+    packages = {**parse_dpkg(DPKG_TRIXIE), "hailort-pcie-driver": "4.22.0"}
+    found = problems(
+        healthy(
+            packages=packages,
+            cli_version="4.23.0",
+            driver_loaded="4.23.0",
+            hailo_platform_version="4.23.0",
+            identity=replace(
+                parse_identify((FIXTURES / "hailo8l.txt").read_text()), firmware_version="4.23.0"
+            ),
+        )
+    )
+    assert [f.message.split(".")[0] for f in found] == [
+        "PCIe driver package hailort-pcie-driver is 4"
+    ]
+
+
+def test_no_driver_package_at_all() -> None:
+    packages = parse_dpkg(DPKG_OK)
+    del packages["hailo-dkms"]
+    del packages["hailofw"]
+    (finding,) = problems(healthy(packages=packages))
+    assert "hailo-dkms (Bookworm) or hailort-pcie-driver (Trixie)" in finding.message
